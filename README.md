@@ -1,6 +1,6 @@
 # mcp-todo-server
 
-[![CI](https://github.com/pawla-homsi/mcp-todo-server/actions/workflows/ci.yml/badge.svg)](https://github.com/pawla-homsi/mcp-todo-server/actions/workflows/ci.yml)
+[![CI](https://github.com/paola-homsi/mcp-todo-server/actions/workflows/ci.yml/badge.svg)](https://github.com/paola-homsi/mcp-todo-server/actions/workflows/ci.yml)
 
 A small [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server that gives an AI assistant a persistent to-do list it can read and update.
 
@@ -21,7 +21,7 @@ Add this to your MCP client configuration (for Claude Desktop, `claude_desktop_c
       "command": "uvx",
       "args": [
         "--from",
-        "git+https://github.com/pawla-homsi/mcp-todo-server.git",
+        "git+https://github.com/paola-homsi/mcp-todo-server.git",
         "mcp-todo-server"
       ]
     }
