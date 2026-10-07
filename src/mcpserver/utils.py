@@ -1,126 +1,89 @@
+"""File-backed task storage for the to-do MCP server."""
+
+from __future__ import annotations
+
 import json
+import os
+import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import List
-from datetime import datetime
+
 from pydantic import BaseModel, Field
-from datetime import datetime
+
+DEFAULT_PATH = Path.home() / ".mcp-todo" / "tasks.json"
+
+
+def _now() -> datetime:
+    return datetime.now(UTC)
+
 
 class Task(BaseModel):
-    id: int = Field(default_factory=int)
+    id: int
     title: str
-    description: str
+    description: str = ""
     completed: bool = False
-    created_at: datetime = datetime.now()
+    # default_factory, not a default value: a plain default is evaluated once
+    # at import time, so every task would share the same timestamp.
+    created_at: datetime = Field(default_factory=_now)
     completed_at: datetime | None = None
 
 
-def read_tasks(file_path: str) -> List[Task]:
-    """
-    Reads tasks from a JSON file and returns a list of Task objects.
-    If file does not exist or is invalid, returns an empty list.
-    """
-    path = Path(file_path)
-    if not path.exists():
-        return []
-    try:
-        with path.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-            if not isinstance(data, list):
-                return []
-            return [Task(**item) for item in data]
-    except (json.JSONDecodeError, OSError, TypeError, ValueError):
-        return []
+class TaskStore:
+    """Persists tasks as a JSON list. Writes are atomic (temp file + rename)."""
 
-def write_task(file_path: str, task: Task) -> bool:
-    """
-    Appends a Task object to the JSON file.
-    If file doesn't exist, creates it with a list containing the task.
-    """
-    path = Path(file_path)
+    def __init__(self, path: str | os.PathLike[str] | None = None) -> None:
+        self.path = Path(path or os.environ.get("MCP_TODO_FILE") or DEFAULT_PATH)
 
-    # Read existing tasks (or start fresh)
-    tasks = read_tasks(file_path)
+    def load(self) -> list[Task]:
+        if not self.path.exists():
+            return []
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            # Refuse to continue rather than silently overwrite the user's data.
+            raise ValueError(f"{self.path} is not valid JSON") from exc
+        if not isinstance(data, list):
+            raise TypeError(f"{self.path} must contain a JSON list")
+        return [Task.model_validate(item) for item in data]
 
-    if not isinstance(tasks, list):
-        tasks = []
+    def save(self, tasks: list[Task]) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(
+            [t.model_dump(mode="json") for t in tasks], indent=2, ensure_ascii=False
+        )
+        fd, tmp = tempfile.mkstemp(dir=self.path.parent, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(payload)
+            os.replace(tmp, self.path)
+        except BaseException:
+            Path(tmp).unlink(missing_ok=True)
+            raise
 
-    # Convert task to dict, making datetime JSON-safe
-    def default_serializer(obj):
-        if isinstance(obj, datetime):
-            return obj.isoformat()
-        raise TypeError(f"Type {type(obj)} not serializable")
+    def add(self, title: str, description: str = "") -> Task:
+        tasks = self.load()
+        next_id = max((t.id for t in tasks), default=0) + 1
+        task = Task(id=next_id, title=title, description=description)
+        tasks.append(task)
+        self.save(tasks)
+        return task
 
-    task_dict = task.model_dump()
+    def complete(self, task_id: int) -> Task | None:
+        tasks = self.load()
+        for task in tasks:
+            if task.id == task_id:
+                if not task.completed:
+                    task.completed = True
+                    task.completed_at = _now()
+                    self.save(tasks)
+                return task
+        return None
 
-    tasks.append(task_dict)
-
-    try:
-        with path.open("w", encoding="utf-8") as f:
-            json.dump(tasks, f, indent=4, ensure_ascii=False, default=default_serializer)
-        return True
-    except OSError:
-        return False
-    
-def complete_task(task_id: int) -> str:
-    """
-    Marks a task as completed.
-    """
-    tasks = read_tasks("tasks.json")
-    if not tasks:
-        return f"No tasks found. Cannot complete task {task_id}."
-
-    for task in tasks:
-        if task.id == task_id:
-            if task.completed:
-                return f"Task {task_id} ('{task.title}') is already completed."
-
-            task.completed = True
-            task.completed_at = datetime.now()
-            save_tasks("tasks.json", tasks)
-            return f"Task {task_id} ('{task.title}') marked as completed ✅."
-
-    return f"Task with ID {task_id} not found."
-
-def delete_task(task_id: int) -> str:
-    """
-    Deletes a task from the to-do list.
-    Args:
-        task_id (int): The ID of the task to delete.
-
-    Returns:
-        str: Confirmation message.
-    """
-    tasks = read_tasks("tasks.json")
-    if not tasks:
-        return f"No tasks found. Cannot delete task {task_id}."
-
-    # Find the task
-    for task in tasks:
-        if task.id == task_id:
-
-            tasks.remove(task)
-            save_tasks("tasks.json", tasks)
-            return f"Task {task_id} ('{task.title}') deleted from your to-do list 🗑️."
-
-    return f"Task with ID {task_id} not found."
-
-def save_tasks(file_path: str, tasks: list[Task]) -> bool:
-    """
-    Saves the entire list of Task objects to the JSON file.
-    Overwrites the file.
-    """
-    path = Path(file_path)
-
-    def default_serializer(obj):
-        if isinstance(obj, datetime):
-            return obj.isoformat()
-        raise TypeError(f"Type {type(obj)} not serializable")
-
-    try:
-        # Use model_dump() to avoid recursion
-        data = [t.model_dump() for t in tasks]
-        with path.open("w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4, ensure_ascii=False, default=default_serializer)
-        return True
-    except OSError:
-        return False
+    def delete(self, task_id: int) -> Task | None:
+        tasks = self.load()
+        for i, task in enumerate(tasks):
+            if task.id == task_id:
+                removed = tasks.pop(i)
+                self.save(tasks)
+                return removed
+        return None

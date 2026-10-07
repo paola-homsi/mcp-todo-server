@@ -1,23 +1,34 @@
 [project]
-name = "mcp-todo"
-version = "0.1.0"
-description = "Add your description here"
+name = "mcp-todo-server"
+version = "0.2.0"
+description = "A small Model Context Protocol (MCP) server that gives an AI assistant a persistent to-do list."
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.12"
+authors = [{ name = "Pawla Homsi" }]
 dependencies = [
-    "mcp[cli]>=1.13.1",
-    "pydantic>=2.11.7",
+    "mcp[cli]>=2.3,<3",
+    "pydantic>=2.11",
 ]
 
 [project.scripts]
-mcp-server = "mcpserver.__main__:main"
+mcp-todo-server = "mcpserver.__main__:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
 
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

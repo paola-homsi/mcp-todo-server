@@ -8,3 +8,10 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+
+# Local data written by the server when run from the repo
+tasks.json
