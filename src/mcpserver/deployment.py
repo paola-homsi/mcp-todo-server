@@ -1,39 +1,47 @@
-from mcp.server.fastmcp import FastMCP
-from mcpserver.utils import read_tasks, write_task, Task
+"""MCP tool definitions for the to-do server."""
 
-mcp = FastMCP("todo")
+from __future__ import annotations
 
-filename = "tasks.json"
+from mcp.server.mcpserver import MCPServer
 
-@mcp.tool()
-def add_task(task: Task) -> str:
-    """
-    Adds a task to the to-do list.
+from mcpserver.utils import TaskStore
 
-    Args:
-        task (Task): The task to add.
+mcp = MCPServer("todo")
+store = TaskStore()
 
-    Returns:
-        str: Confirmation message.
-    """
-    # In a real implementation, this function would save the task to a database or file.
-    write_task(filename, task)
-    return f"Task '{task.title}' added to your to-do list."
 
 @mcp.tool()
-def list_tasks() -> str:
-    """
-    Lists all tasks in the to-do list.
+def add_task(title: str, description: str = "") -> str:
+    """Add a task to the to-do list and return its id."""
+    task = store.add(title, description)
+    return f"Added task {task.id}: {task.title}"
 
-    Returns:
-        str: A list of tasks.
-    """
-    tasks = read_tasks(filename)
+
+@mcp.tool()
+def list_tasks(include_completed: bool = True) -> str:
+    """List tasks, optionally hiding completed ones."""
+    tasks = [t for t in store.load() if include_completed or not t.completed]
     if not tasks:
         return "No tasks found."
-    lines = []
-    for task in tasks:
-        status = "✅ Done" if task.completed else "📝 Pending"
-        lines.append(f"[{task.id}] {task.title} - {status}\n   {task.description}")
+    lines = [
+        f"[{t.id}] {'done' if t.completed else 'open'}: {t.title}"
+        + (f" ({t.description})" if t.description else "")
+        for t in tasks
+    ]
+    return "\n".join(lines)
 
-    return "Tasks found:\n" + "\n".join(lines)
+
+@mcp.tool()
+def complete_task(task_id: int) -> str:
+    """Mark a task as completed."""
+    task = store.complete(task_id)
+    return (
+        f"Task {task_id} not found." if task is None else f"Completed task {task_id}: {task.title}"
+    )
+
+
+@mcp.tool()
+def delete_task(task_id: int) -> str:
+    """Delete a task from the list."""
+    task = store.delete(task_id)
+    return f"Task {task_id} not found." if task is None else f"Deleted task {task_id}: {task.title}"
